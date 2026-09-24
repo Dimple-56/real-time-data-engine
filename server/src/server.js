@@ -98,6 +98,10 @@ async function main() {
     const server = http.createServer(async (req, res) => {
         try {
             const url = new URL(req.url, "http://" + (req.headers.host || "localhost"));
+            if (req.method === "GET" && url.pathname === "/healthz") {
+                res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+                return res.end(JSON.stringify({ status: "ok" }));
+            }
             if (url.pathname.startsWith("/api/")) {
                 if (!corsAllowed(req, res, config)) {
                     res.writeHead(403, { "Content-Type": "application/json; charset=utf-8" });
