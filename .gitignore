@@ -1,0 +1,51 @@
+# Environment secrets and local configuration
+.env
+.env.*
+!.env.example
+!/server/.env.example
+
+# Node.js dependencies
+node_modules/
+server/node_modules/
+
+# npm and local runtime logs
+npm-debug.log*
+*.log
+
+# Local PostgreSQL credentials and service configuration
+.pgpass
+.pgpass.*
+*.pgpass
+pgpass.conf
+pg_service.conf
+pg_service.conf.*
+
+# Local PostgreSQL data directories
+pgdata/
+postgres-data/
+
+# Local backups and checkpoints
+backup/
+backups/
+checkpoint/
+checkpoints/
+*.backup-*/
+*.checkpoint-*/
+*backup-before-*/
+*checkpoint-before-*/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Editor temporary files
+*.swp
+*.swo
+*.tmp
+*.temp
+*~
+.#*
+#*#
+data/*.xlsx
