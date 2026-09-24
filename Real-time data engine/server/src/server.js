@@ -32,7 +32,6 @@ function loadConfig() {
     }
 
     const secret = process.env.FEED_CONTROL_SECRET.trim();
-    // Reduced length requirement from 32 to 8 characters so 'sensor123' works
     if (secret.length < 8 || /^(replace|change|your)[-_ ]/i.test(secret)) {
         throw new Error("FEED_CONTROL_SECRET must be a non-placeholder secret of at least 8 characters.");
     }
@@ -49,6 +48,7 @@ function loadConfig() {
         throw new Error("FRONTEND_ORIGIN must contain only the frontend scheme, host, and optional port.");
     }
 
+    // Capture dynamic PORT from Voroa or fallback to 3000 for local dev
     const rawPort = process.env.PORT || "3000";
     const port = Number(rawPort);
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -126,9 +126,11 @@ async function main() {
     });
 
     server.listen(config.port, config.host, () => {
-        console.log("Sensor app listening on " + config.host + ":" + config.port);
+        console.log(`Sensor app listening on ${config.host}:${config.port}`);
+        console.log(`Dynamic PORT detected: ${config.port}`);
         console.log("Single-instance generator mode: run exactly one server instance.");
     });
+
     const shutdown = async () => {
         server.close();
         await storage.closeStorage();
