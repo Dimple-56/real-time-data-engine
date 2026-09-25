@@ -355,7 +355,7 @@ select {
 }
 
 .btn-live:hover {
-    background: #15803d;
+    display: none !important;
 }
 
 .btn-live.btn-live-active {
