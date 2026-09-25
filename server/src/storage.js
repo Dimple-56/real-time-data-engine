@@ -1,76 +1,105 @@
-const { Pool } = require('pg');
+const { Pool } = require("pg");
+const fs = require("node:fs");
+const path = require("node:path");
 
-// 1. Database Connection Configuration
-// Utilizes the DATABASE_URL environment variable provided by Voroa
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+    throw new Error("DATABASE_URL is required. Configure it in your Voroa environment.");
+}
 const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: {
-        rejectUnauthorized: false // Enforces the required SSL connection for managed DBs
-    }
+    connectionString,
+    ssl: process.env.PGSSL === "true" ? { rejectUnauthorized: true } : false
 });
 
-// 2. Rotation Configuration (1GB Voroa Limit)
-const MAX_ROWS = 2500000;      // 100% capacity per sheet (~330MB)
-const WIPE_THRESHOLD = 1875000; // 75% capacity trigger (~250MB)
+// 1GB Rotation Configurations
+const ROW_LIMIT = 1000000;      
+const WIPE_THRESHOLD = 750000; 
 
-// State tracking (must remain outside functions to persist during streams)
 let currentSheet = 1;
 let rowCount = 0;
+let isTruncating = false;
 
-/**
- * 3. Ingestion Function: Saves live data and manages the circular buffer
- * @param {Object} data - The sensor payload containing p1, p2, dp, and rpm
- */
-async function saveSensorData(data) {
+async function initializeStorage() {
     try {
-        // Insert into the currently active sheet
-        const insertQuery = `INSERT INTO telemetry_data_${currentSheet} (p1, p2, dp, rpm) VALUES ($1, $2, $3, $4)`;
-        await pool.query(insertQuery, [data.p1, data.p2, data.dp, data.rpm]);
-        rowCount++;
-
-        // Asynchronously wipe the next sheet when current hits 75%
-        if (rowCount === WIPE_THRESHOLD) {
-            let sheetToWipe = currentSheet === 3 ? 1 : currentSheet + 1;
-            console.log(`Capacity threshold reached. Wiping sheet ${sheetToWipe}...`);
-            
-            pool.query(`TRUNCATE TABLE telemetry_data_${sheetToWipe}`)
-                .catch(err => console.error("Database wipe failed:", err));
+        const maxIdRes = await pool.query("SELECT id FROM telemetry_active_stream ORDER BY id DESC LIMIT 1");
+        if (maxIdRes.rows.length > 0) {
+            const maxId = maxIdRes.rows[0].id;
+            for (let i = 1; i <= 3; i++) {
+                const check = await pool.query(`SELECT id FROM telemetry_data_${i} WHERE id = $1`, [maxId]);
+                if (check.rows.length > 0) {
+                    const countRes = await pool.query(`SELECT COUNT(*)::int as c FROM telemetry_data_${i}`);
+                    currentSheet = i;
+                    rowCount = countRes.rows[0].c;
+                    console.log(`Resuming on Sheet ${i} with ${rowCount} rows.`);
+                    return;
+                }
+            }
         }
-
-        // Rotate to the next sheet when current hits 100%
-        if (rowCount >= MAX_ROWS) {
-            currentSheet = currentSheet === 3 ? 1 : currentSheet + 1;
-            rowCount = 0; // Reset for the newly opened sheet
-            console.log(`Rotation complete. Now writing to sheet ${currentSheet}`);
-        }
-    } catch (error) {
-        console.error("Error saving telemetry data:", error);
+    } catch (e) {
+        console.log("Database initialized on fresh rotation loop.");
     }
 }
 
-/**
- * 4. Retrieval Function: Fetches seamless data for the frontend
- * Queries the unified VIEW so the dashboard doesn't have to handle rotation logic
- * @param {number} limit - Number of recent records to fetch
- */
-async function getHistoricalData(limit = 1000) {
-    try {
-        const query = `
-            SELECT * FROM telemetry_active_stream 
-            ORDER BY timestamp DESC 
-            LIMIT $1
-        `;
-        const result = await pool.query(query, [limit]);
-        return result.rows;
-    } catch (error) {
-        console.error("Error retrieving historical data:", error);
-        return [];
-    }
+async function getFeedState() {
+    const result = await pool.query("SELECT running, last_values FROM feed_state WHERE singleton = TRUE");
+    return result.rows[0] || { running: false, last_values: {} };
 }
 
-// 5. Export the modules for routes.js and stream.js to use
-module.exports = {
-    pool,
-    saveSensorData,
-    getHistoricalData
-};
+async function setFeedState(running, lastValues) {
+    const sql = "INSERT INTO feed_state (singleton, running, last_values, updated_at) VALUES (TRUE, $1, $2::jsonb, NOW()) " +
+        "ON CONFLICT (singleton) DO UPDATE SET running = EXCLUDED.running, last_values = EXCLUDED.last_values, updated_at = NOW() " +
+        "RETURNING running, last_values";
+    const result = await pool.query(sql, [running, JSON.stringify(lastValues || {})]);
+    return result.rows[0];
+}
+
+async function getLatestReading() {
+    const result = await pool.query("SELECT id, payload FROM telemetry_active_stream ORDER BY id DESC LIMIT 1");
+    if (!result.rows.length) return null;
+    return { id: Number(result.rows[0].id), ...result.rows[0].payload };
+}
+
+async function saveReading(row) {
+    rowCount++;
+
+    if (rowCount > ROW_LIMIT) {
+        currentSheet = currentSheet === 3 ? 1 : currentSheet + 1;
+        rowCount = 1; 
+        console.log(`Rolled over to telemetry_data_${currentSheet}`);
+    }
+
+    if (rowCount === WIPE_THRESHOLD && !isTruncating) {
+        isTruncating = true;
+        const sheetToWipe = currentSheet === 3 ? 1 : currentSheet + 1;
+        pool.query(`TRUNCATE TABLE telemetry_data_${sheetToWipe}`)
+            .then(() => { isTruncating = false; })
+            .catch(err => { console.error("Truncate failed:", err); isTruncating = false; });
+    }
+
+    const query = `INSERT INTO telemetry_data_${currentSheet} (payload) VALUES ($1::jsonb) RETURNING id`;
+    const result = await pool.query(query, [JSON.stringify(row)]);
+    
+    return { id: Number(result.rows[0].id), ...row };
+}
+
+async function listReadings(options) {
+    const limit = Math.max(1, Math.min(Number(options.limit) || 1000, 5000));
+    let result;
+    if (options.afterId != null) {
+        result = await pool.query("SELECT id, payload FROM telemetry_active_stream WHERE id > $1 ORDER BY id ASC LIMIT $2", [options.afterId, limit]);
+    } else if (options.beforeId != null) {
+        result = await pool.query("SELECT id, payload FROM telemetry_active_stream WHERE id < $1 ORDER BY id DESC LIMIT $2", [options.beforeId, limit]);
+    } else {
+        result = await pool.query("SELECT id, payload FROM telemetry_active_stream ORDER BY id DESC LIMIT $1", [limit]);
+    }
+    return result.rows.map(r => ({ id: Number(r.id), ...r.payload })).sort((a, b) => a.id - b.id);
+}
+
+async function getReadingCount() {
+    const result = await pool.query("SELECT COUNT(*)::bigint AS count FROM telemetry_active_stream");
+    return Number(result.rows[0].count);
+}
+
+async function closeStorage() { await pool.end(); }
+
+module.exports = { initializeStorage, getFeedState, setFeedState, getLatestReading, saveReading, listReadings, getReadingCount, closeStorage };
