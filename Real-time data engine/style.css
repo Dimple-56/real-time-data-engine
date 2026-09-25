@@ -343,25 +343,6 @@ select {
     gap: 16px;
 }
 
-.btn-live {
-    padding: 10px 18px;
-    border-radius: 6px;
-    border: 1px solid #16a34a;
-    background: #16a34a;
-    color: white;
-    font-size: 14px;
-    font-weight: bold;
-    cursor: pointer;
-}
-
-.btn-live:hover {
-    display: none !important;
-}
-
-.btn-live.btn-live-active {
-    display: none !important;
-}
-
 .btn-download {
     padding: 10px 18px;
     border-radius: 6px;
