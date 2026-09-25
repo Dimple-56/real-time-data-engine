@@ -359,7 +359,7 @@ select {
 }
 
 .btn-live.btn-live-active {
-    display: none;
+    display: none !important;
 }
 
 .btn-download {
