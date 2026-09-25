@@ -1,7 +1,7 @@
 /* Dashboard charts load backend history and update over SSE.
    This page controls the shared feed; generation is independent of browser tabs.
    Chart layout, precision controls, export, and drag/reorder behavior remain. */
-
+const PLOT_MAX_POINTS = 100;
 const STORAGE_KEY = "dashboard_charts_v3";
 
 const DEFAULT_CHARTS = [
@@ -363,11 +363,11 @@ function onDragEnd() {
 }
 
 /* =====================================================
-   LIVE FEED CONTROLS — shared backend start/stop
+   LIVE FEED CONTROLS — always monitoring
    ===================================================== */
 
 function setLiveStatus(text, isLive) {
-    const status = document.getElementById("liveStatus");
+    const status = document.getElementById("liveStatus") || document.getElementById("status");
 
     if (status) {
         status.textContent = text;
@@ -383,43 +383,21 @@ function handleTick(newRow, totalCount) {
     setLiveStatus("Live \u2014 " + totalCount + " readings logged", true);
 }
 
-function reflectLiveButton(isRunning) {
-    const toggleBtn = document.getElementById("liveToggle");
-    if (!toggleBtn) return;
-    toggleBtn.textContent = isRunning ? "\u25A0 Stop Live Feed" : "\u25B6 Start Live Feed";
-    toggleBtn.disabled = false;
-    toggleBtn.classList.toggle("btn-live-active", isRunning);
-}
-
-function initLiveControls() {
-    const toggleBtn = document.getElementById("liveToggle");
+async function initLiveControls() {
     const downloadBtn = document.getElementById("downloadLog");
-    if (toggleBtn) {
-        getFeedStatus().then(function (status) {
-            reflectLiveButton(status.running);
-            setLiveStatus(status.running
-                ? "Live — " + status.count + " readings logged"
-                : "Feed stopped — " + status.count + " readings logged", status.running);
-        }).catch(function (error) {
-            setLiveStatus("Backend unavailable: " + error.message, false);
-            toggleBtn.disabled = true;
-        });
-        toggleBtn.addEventListener("click", async function () {
-            toggleBtn.disabled = true;
-            try {
-                const status = await getFeedStatus();
-                const updated = status.running ? await stopRealtimeFeed() : await startRealtimeFeed();
-                reflectLiveButton(updated.running);
-                setLiveStatus(updated.running
-                    ? "Live — " + updated.count + " readings logged"
-                    : "Feed stopped — " + updated.count + " readings logged", updated.running);
-            } catch (error) {
-                console.error("Could not change backend feed state:", error);
-                setLiveStatus("Feed control failed: " + error.message, false);
-                toggleBtn.disabled = false;
-            }
-        });
+
+    // Auto-start the feed so it is always monitoring
+    try {
+        let status = await getFeedStatus();
+        if (!status.running) {
+            status = await startRealtimeFeed();
+        }
+        setLiveStatus("Live \u2014 " + status.count + " readings logged", true);
+    } catch (error) {
+        console.error("Could not check/start backend feed:", error);
+        setLiveStatus("Backend unavailable: " + error.message, false);
     }
+
     if (downloadBtn) {
         downloadBtn.addEventListener("click", async function () {
             downloadBtn.disabled = true;
@@ -441,6 +419,3 @@ renderDashboard().then(function () {
     console.error("Dashboard failed to load:", error);
     setLiveStatus("Dashboard load failed: " + error.message, false);
 });
-
-
-

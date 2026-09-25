@@ -1,10 +1,17 @@
 /* Browser client for the backend-owned live feed. No generation or browser database. */
-const API_BASE_URL = window.SENSOR_API_BASE_URL || "";
+
+// 1. Updated API_BASE_URL to point to your live Voroa backend instead of the local server
+const API_BASE_URL = window.SENSOR_API_BASE_URL || "https://sensor-backend.getvoroa.com";
+
 const LIVE_PAGE_LIMIT = 5000;
 let lastKnownReadingId = 0;
 let knownReadingCount = 0;
 let eventSource = null;
 let streamConnecting = false;
+
+// 2. Declared feedControlSecret to prevent ReferenceErrors in strict mode
+let feedControlSecret = null; 
+
 const tickListeners = [];
 
 async function apiRequest(path, options) {
@@ -25,7 +32,7 @@ async function apiRequest(path, options) {
 async function getFeedStatus() {
     const status = await apiRequest("/api/status");
     knownReadingCount = status.count;
-        return status;
+    return status;
 }
 
 async function getLastLoggedRows(limit) {
@@ -130,8 +137,3 @@ async function exportLogToExcel() {
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
     XLSX.writeFile(workbook, "live_sensor_log_" + stamp + ".xlsx");
 }
-
-
-
-
-

@@ -42,7 +42,41 @@ function createRoutes(storage, generator, stream, config) {
     return { handle };
 }
 
-function json(res, status, body) {
+function json(res, status, body) {const express = require('express');
+const router = express.Router();
+
+// Import the database retrieval function from your newly updated storage.js
+const { getHistoricalData } = require('./storage');
+
+/**
+ * 1. Historical Data Endpoint
+ * The frontend dashboard and Excel export tool will call this route 
+ * to grab the seamless timeline from your 3-sheet database.
+ */
+router.get('/history', async (req, res) => {
+    try {
+        // Fetch the 1000 most recent sensor readings
+        const data = await getHistoricalData(1000); 
+        res.json(data);
+    } catch (error) {
+        console.error("API Error in /history route:", error);
+        res.status(500).json({ error: "Failed to fetch telemetry history" });
+    }
+});
+
+/**
+ * 2. Health Check Endpoint
+ * A simple route to verify that your Voroa backend is online and responding.
+ */
+router.get('/status', (req, res) => {
+    res.json({ 
+        status: 'online', 
+        message: 'Sensor Data Engine API is active and listening.' 
+    });
+});
+
+// Export the router so server.js can use it
+module.exports = router;
     res.writeHead(status, {
         "Content-Type": "application/json; charset=utf-8",
         "Cache-Control": "no-store"

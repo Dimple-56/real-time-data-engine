@@ -1,4 +1,5 @@
 /* Live data facade: all history comes from the backend API. */
+const PLOT_MAX_POINTS = 100;
 function withRealtimeData(callback) {
     setStatus("Loading live readings...");
     return getAllLoggedRows().then(function (rows) {
