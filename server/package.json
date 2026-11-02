@@ -4,7 +4,7 @@
   "private": true,
   "description": "Backend service for the sensor live data application",
   "main": "src/server.js",
-  "scripts": { "start": "node src/server.js", "dev": "node --watch src/server.js" },
+  "scripts": { "start": "node --max-old-space-size=4096 src/server.js", "dev": "node --watch src/server.js" },
   "engines": { "node": ">=20" },
   "dependencies": { "pg": "^8.16.3" }
 }
